@@ -1,0 +1,10 @@
+{
+  "description": "This modern e-commerce platform offers a seamless shopping experience for customers to browse and purchase phones and accessories, while providing administrators with robust product management tools.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
