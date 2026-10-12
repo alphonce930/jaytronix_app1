@@ -1,6 +1,6 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { auth, isFirebaseConfigured } from "../services/firebase";
+import { auth, isFirebaseConfigured, missingFirebaseConfig } from "../services/firebase";
 import { isSupabaseConfigured, supabase } from "../services/supabase";
 
 interface AuthContextValue {
@@ -73,7 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     } else {
-      if (!isDemo) throw new Error("Firebase Authentication is not configured.");
+      if (!isDemo) {
+        throw new Error(
+          `Firebase Authentication is not configured. Add these Vercel environment variables and redeploy: ${missingFirebaseConfig.join(", ")}.`,
+        );
+      }
       if (email !== "admin@jaytronix.co.tz" || password !== "demo1234") throw new Error("Use the demo credentials shown below.");
       sessionStorage.setItem("jaytronix-demo-admin", "true");
       setUser({ uid: "demo-admin", email });

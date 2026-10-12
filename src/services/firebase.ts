@@ -10,11 +10,15 @@ const config = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
+export const missingFirebaseConfig = [
+  ["VITE_FIREBASE_API_KEY", config.apiKey],
+  ["VITE_FIREBASE_AUTH_DOMAIN", config.authDomain],
+  ["VITE_FIREBASE_PROJECT_ID", config.projectId],
+  ["VITE_FIREBASE_APP_ID", config.appId],
+].filter(([, value]) => !value).map(([name]) => name);
+
 export const isFirebaseConfigured = Boolean(
-  config.apiKey &&
-    config.authDomain &&
-    config.projectId &&
-    config.appId,
+  missingFirebaseConfig.length === 0,
 );
 const app = isFirebaseConfigured ? getApps()[0] ?? initializeApp(config) : null;
 
