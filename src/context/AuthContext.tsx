@@ -1,100 +1,181 @@
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { auth, isFirebaseConfigured, missingFirebaseConfig } from "../services/firebase";
-import { isSupabaseConfigured, supabase } from "../services/supabase";
+import type { User } from "@supabase/supabase-js"
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react"
+
+import { isSupabaseConfigured, supabase } from "../services/supabase"
 
 interface AuthContextValue {
-  user: User | { uid: string; email: string } | null;
-  loading: boolean;
-  isDemo: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  user: User | null
+
+  loading: boolean
+
+  isConfigured: boolean
+
+  login: (email: string, password: string) => Promise<void>
+
+  logout: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext = createContext<AuthContextValue | null>(null)
 
-async function isAdmin(uid: string): Promise<boolean> {
-  if (!supabase) {
-    throw new Error("Supabase is not configured. Add its URL and anon key to enable admin access.");
+async function isAdmin(userId: string): Promise<boolean> {
+  const client = supabase
+
+  if (!client) {
+    throw new Error(
+      "Supabase is not configured. Add the Supabase URL and publishable key.",
+    )
   }
-  const { data, error } = await supabase
+
+  const { data, error } = await client
+
     .from("admins")
-    .select("firebase_uid")
-    .eq("firebase_uid", uid)
+
+    .select("user_id")
+
+    .eq("user_id", userId)
+
     .eq("role", "admin")
-    .maybeSingle();
-  if (error) throw new Error(`Unable to verify the admin account in Supabase: ${error.message}`);
-  return Boolean(data);
+
+    .maybeSingle()
+
+  if (error)
+    throw new Error(
+      `Unable to verify the admin account in Supabase: ${error.message}`,
+    )
+
+  return Boolean(data)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const isDemo = !isFirebaseConfigured && !isSupabaseConfigured;
-  const [user, setUser] = useState<AuthContextValue["user"]>(null);
-  const [loading, setLoading] = useState(true);
+  const client = supabase
+
+  const [user, setUser] = useState<User | null>(null)
+
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!auth) {
-      const demo = isDemo && sessionStorage.getItem("jaytronix-demo-admin");
-      setUser(demo ? { uid: "demo-admin", email: "admin@jaytronix.co.tz" } : null);
-      setLoading(false);
-      return;
+    if (!client) {
+      setLoading(false)
+
+      return
     }
-    const firebaseAuth = auth;
-    return onAuthStateChanged(firebaseAuth, async (nextUser) => {
-      try {
-        if (!nextUser) {
-          setUser(null);
-        } else {
-          const authorized = await isAdmin(nextUser.uid);
-          setUser(authorized ? nextUser : null);
-          if (!authorized) await signOut(firebaseAuth);
-        }
-      } catch (error) {
-        console.error("Unable to verify the Firebase admin account.", error);
-        setUser(null);
-        if (nextUser) await signOut(firebaseAuth);
-      } finally {
-        setLoading(false);
-      }
-    });
-  }, []);
+
+    let active = true
+
+    let authEvent = 0
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((_event, session) => {
+      const currentEvent = ++authEvent
+
+      queueMicrotask(() => {
+        void (async () => {
+          if (!active || currentEvent !== authEvent) return
+
+          setLoading(true)
+
+          try {
+            if (!session) {
+              setUser(null)
+
+              return
+            }
+
+            if (await isAdmin(session.user.id)) {
+              if (active && currentEvent === authEvent) setUser(session.user)
+            } else {
+              if (active && currentEvent === authEvent) setUser(null)
+
+              await client.auth.signOut()
+            }
+          } catch (error) {
+            console.error("Unable to verify the Supabase admin account.", error)
+
+            if (active && currentEvent === authEvent) setUser(null)
+
+            if (session) await client.auth.signOut()
+          } finally {
+            if (active && currentEvent === authEvent) setLoading(false)
+          }
+        })()
+      })
+    })
+
+    return () => {
+      active = false
+
+      subscription.unsubscribe()
+    }
+  }, [])
 
   async function login(email: string, password: string) {
-    if (auth) {
-      setLoading(true);
-      try {
-        const credential = await signInWithEmailAndPassword(auth, email, password);
-        if (!(await isAdmin(credential.user.uid))) {
-          await signOut(auth);
-          throw new Error("This account is not an authorized admin. Add its Firebase UID to the Supabase admins table.");
-        }
-        setUser(credential.user);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      if (!isDemo) {
+    if (!client) {
+      throw new Error(
+        "Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.",
+      )
+    }
+
+    setLoading(true)
+
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) throw error
+
+      if (!(await isAdmin(data.user.id))) {
+        await client.auth.signOut()
+
         throw new Error(
-          `Firebase Authentication is not configured. Add these Vercel environment variables and redeploy: ${missingFirebaseConfig.join(", ")}.`,
-        );
+          "This account is not an authorized admin. Add its Supabase Auth user ID to the admins table.",
+        )
       }
-      if (email !== "admin@jaytronix.co.tz" || password !== "demo1234") throw new Error("Use the demo credentials shown below.");
-      sessionStorage.setItem("jaytronix-demo-admin", "true");
-      setUser({ uid: "demo-admin", email });
+
+      setUser(data.user)
+    } finally {
+      setLoading(false)
     }
   }
 
   async function logout() {
-    if (auth) await signOut(auth);
-    sessionStorage.removeItem("jaytronix-demo-admin");
-    setUser(null);
+    if (client) {
+      const { error } = await client.auth.signOut()
+
+      if (error) throw error
+    }
+
+    setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, loading, isDemo, login, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        isConfigured: isSupabaseConfigured,
+        login,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within AuthProvider");
-  return context;
+  const context = useContext(AuthContext)
+
+  if (!context) throw new Error("useAuth must be used within AuthProvider")
+
+  return context
 }

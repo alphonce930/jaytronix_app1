@@ -16,9 +16,44 @@ create table if not exists public.products (
 );
 
 create table if not exists public.admins (
-  firebase_uid text primary key,
+  user_id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role = 'admin')
 );
+
+do $$
+declare
+  primary_key_name text;
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'admins'
+      and column_name = 'firebase_uid'
+  ) then
+    alter table public.admins alter column firebase_uid drop not null;
+    alter table public.admins
+      add column if not exists user_id uuid references auth.users(id) on delete cascade;
+
+    select constraint_row.conname
+    into primary_key_name
+    from pg_constraint as constraint_row
+    join pg_attribute as column_row
+      on column_row.attrelid = constraint_row.conrelid
+      and column_row.attnum = any(constraint_row.conkey)
+    where constraint_row.conrelid = 'public.admins'::regclass
+      and constraint_row.contype = 'p'
+      and column_row.attname = 'firebase_uid';
+
+    if primary_key_name is not null then
+      execute format('alter table public.admins drop constraint %I', primary_key_name);
+    end if;
+
+    create unique index if not exists admins_user_id_unique
+      on public.admins (user_id);
+  end if;
+end
+$$;
 
 alter table public.products enable row level security;
 alter table public.admins enable row level security;
@@ -43,7 +78,7 @@ create policy "Admins can insert products"
     and
     exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );
 
@@ -55,14 +90,14 @@ create policy "Admins can update products"
     (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   )
   with check (
     (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );
 
@@ -74,7 +109,7 @@ create policy "Admins can delete products"
     (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );
 
@@ -82,7 +117,7 @@ drop policy if exists "Admins can check their own access" on public.admins;
 create policy "Admins can check their own access"
   on public.admins for select
   to authenticated
-  using (firebase_uid = (select auth.jwt() ->> 'sub'));
+  using (user_id = (select auth.uid()));
 
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('product-media', 'product-media', true, 20971520)
@@ -104,7 +139,7 @@ create policy "Admins can upload product media"
     and (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );
 
@@ -118,7 +153,7 @@ create policy "Admins can update product media"
     and (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   )
   with check (
@@ -127,7 +162,7 @@ create policy "Admins can update product media"
     and (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );
 
@@ -141,6 +176,6 @@ create policy "Admins can delete product media"
     and (select auth.jwt() ->> 'role') = 'authenticated'
     and exists (
       select 1 from public.admins
-      where firebase_uid = (select auth.jwt() ->> 'sub') and role = 'admin'
+      where user_id = (select auth.uid()) and role = 'admin'
     )
   );

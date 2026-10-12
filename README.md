@@ -1,51 +1,45 @@
 # Jaytronix Store
 
-A responsive React, TypeScript, and Tailwind CSS storefront. Firebase Authentication handles administrator sign-in; Supabase Postgres and Storage hold the catalog and product media.
+A responsive React, TypeScript, and Tailwind CSS storefront. Supabase provides authentication, Postgres product data, and product media storage.
 
 ## Local development
 
-The app runs without cloud configuration in demo mode. Products persist in browser `localStorage`, and demo admin credentials are pre-filled at `/admin/login`.
+1. Create a Supabase project and copy `.env.example` to `.env.local`.
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` using the project URL and publishable key from Supabase Project Settings → API.
+3. Run `supabase/schema.sql` in the Supabase SQL Editor.
+4. Install and start the app:
 
 ```bash
 pnpm install
-cp .env.example .env.local
 pnpm dev
 ```
 
-## Firebase Authentication and Supabase setup
+The app uses the configured Supabase project for products and authentication. It does not fall back to demo or browser-local product data.
 
-1. Create a Firebase project, register a Web app, and enable **Email/Password** under Authentication → Sign-in method.
-2. Create a Supabase project and configure Firebase as a third-party authentication provider in Supabase Authentication. Use the Firebase project ID and the provider credentials requested by Supabase.
-3. Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL Editor. It creates the product and admin tables, the public media bucket, and row-level security policies. Product reads are public; product writes and media uploads require an authenticated admin Firebase ID token.
-4. Create the administrator in Firebase Authentication. From a trusted server using the Firebase Admin SDK, set the admin's Firebase custom claim `role: "authenticated"`. Preserve any existing custom claims when setting this claim. The admin must sign out and back in to refresh their ID token; Supabase requires this claim to authorize third-party Firebase tokens.
-5. Copy `.env.example` to `.env.local` and fill in the Firebase Web app values, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` from the Supabase project API settings. These web configuration values and the publishable key are intended for browser use and are protected by the configured policies. Never add Firebase Admin SDK credentials, Supabase secret/service-role keys, or private keys to this frontend.
-6. Add the admin's Firebase UID to Supabase using the SQL Editor:
+## Create an administrator
+
+1. In Supabase Dashboard, open Authentication → Users and add a user with the admin email and password. Enable email/password sign-in in Authentication → Sign-in methods if needed.
+2. Copy the user's UUID from the Users table.
+3. In the Supabase SQL Editor, grant that user the admin role:
 
 ```sql
-insert into public.admins (firebase_uid, role)
-values ('YOUR_FIREBASE_AUTH_USER_UID', 'admin');
+insert into public.admins (user_id, role)
+values ('SUPABASE_AUTH_USER_UUID', 'admin')
+on conflict (user_id) do update set role = excluded.role;
 ```
 
-Only a trusted project owner should add or remove administrator rows. Do not grant browser clients write access to the `admins` table.
-7. Add products through the dashboard. Existing Firebase/Firestore product records are not migrated automatically; import them into the Supabase `products` table before switching an existing store.
+Only a trusted project owner should add or remove rows in `public.admins`. The dashboard does not include public signup.
 
-## Production and hosting
+## Data and storage
 
-```bash
-pnpm build
-firebase deploy --only hosting --project YOUR_FIREBASE_PROJECT_ID
-```
+Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL Editor. It creates or updates the products and admin tables, RLS policies, and public `product-media` bucket. Products can be read publicly; only admin users can modify products or upload media.
 
-Firebase Hosting is configured to rebuild the app before deployment and rewrite client-side routes to `index.html`. Images are lazy-loaded in product grids; Supabase Storage uploads are limited to 20 MB by bucket configuration, and the storefront loads products in one catalog request with incremental display.
+If you previously ran the earlier schema, rerun the updated script. Old administrator entries do not grant access; add each administrator's Supabase Auth UUID as described above. Import existing product data into Supabase's `products` table before using the live catalog.
 
-Run `pnpm typecheck` and `pnpm build` before deploying. Keep `.env.local` private; `.env.example` is a blank configuration template and is safe to commit.
+## Deploying to Vercel
 
-### Deploying to Vercel
+1. Import the GitHub repository into Vercel and select the branch to deploy. Use the repository root; Vercel should detect Vite. Set the build command to `pnpm build` and output directory to `dist`.
+2. In Vercel Project Settings → Environment Variables, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for Production, and Preview if needed. Use the values from the same Supabase project where you ran the schema. Never put a Supabase secret/service-role key in frontend environment variables.
+3. Deploy or redeploy after saving the variables. The [`vercel.json`](./vercel.json) rewrite supports direct visits and refreshes on app routes.
 
-1. Push the existing GitHub repository to the branch you want to deploy, then import that repository in the Vercel dashboard.
-2. Set the project root to the repository root. Vercel should detect Vite; use `pnpm build` as the build command and `dist` as the output directory.
-3. In **Project Settings → Environment Variables**, add the `VITE_FIREBASE_*` values and `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` from your local `.env.local` for the Production environment (and Preview/Development if needed). The variable names must match exactly. Do not add Admin SDK credentials or Supabase secret/service-role keys.
-4. Deploy. `vercel.json` rewrites client-side routes to `index.html`, so direct visits and refreshes on routes such as `/products/example` and `/admin/login` load the SPA.
-5. Add the deployed Vercel domain to Firebase Authentication's authorized domains. Ensure the Supabase Firebase third-party auth provider is configured and the SQL schema and RLS policies have been applied before enabling production writes.
-
-Subsequent pushes to the connected production branch trigger production deployments; other branches create preview deployments. Do not commit `.env.local` or enter service-account/private credentials in Vercel's frontend environment variables.
+Run `pnpm typecheck` and `pnpm build` before deploying. Keep `.env.local` private; `.env.example` is safe to commit.
