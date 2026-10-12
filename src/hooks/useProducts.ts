@@ -12,8 +12,8 @@ export function useProducts() {
     setError("");
     try {
       setProducts(await getProducts());
-    } catch {
-      setError("We couldn't load products. Please try again.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "We couldn't load products. Please try again.");
     } finally {
       setLoading(false);
     }

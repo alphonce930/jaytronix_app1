@@ -1,7 +1,7 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { auth, isFirebaseConfigured } from "../services/firebase";
-import { supabase } from "../services/supabase";
+import { isSupabaseConfigured, supabase } from "../services/supabase";
 
 interface AuthContextValue {
   user: User | { uid: string; email: string } | null;
@@ -28,12 +28,13 @@ async function isAdmin(uid: string): Promise<boolean> {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const isDemo = !isFirebaseConfigured && !isSupabaseConfigured;
   const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!auth) {
-      const demo = sessionStorage.getItem("jaytronix-demo-admin");
+      const demo = isDemo && sessionStorage.getItem("jaytronix-demo-admin");
       setUser(demo ? { uid: "demo-admin", email: "admin@jaytronix.co.tz" } : null);
       setLoading(false);
       return;
@@ -72,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     } else {
+      if (!isDemo) throw new Error("Firebase Authentication is not configured.");
       if (email !== "admin@jaytronix.co.tz" || password !== "demo1234") throw new Error("Use the demo credentials shown below.");
       sessionStorage.setItem("jaytronix-demo-admin", "true");
       setUser({ uid: "demo-admin", email });
@@ -84,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, loading, isDemo: !isFirebaseConfigured, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, isDemo, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -1,5 +1,6 @@
 import { seedProducts } from "../data/products";
 import type { Product, ProductInput } from "../types/product";
+import { isFirebaseConfigured } from "./firebase";
 import { supabase } from "./supabase";
 
 const KEY = "jaytronix-products";
@@ -54,8 +55,17 @@ function saveLocal(products: Product[]) {
   localStorage.setItem(KEY, JSON.stringify(products));
 }
 
+function ensureSupabaseConfigured(): void {
+  if (!supabase && isFirebaseConfigured) {
+    throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the deployment environment.");
+  }
+}
+
 export async function getProducts(): Promise<Product[]> {
-  if (!supabase) return localProducts();
+  if (!supabase) {
+    ensureSupabaseConfigured();
+    return localProducts();
+  }
   const { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: false });
   if (error) throw new Error(`Unable to load products from Supabase: ${error.message}`);
   return (data ?? []).map((row) => toProduct(row));
@@ -64,6 +74,7 @@ export async function getProducts(): Promise<Product[]> {
 export async function saveProduct(input: ProductInput, id?: string): Promise<void> {
   const now = new Date().toISOString();
   if (!supabase) {
+    ensureSupabaseConfigured();
     const products = localProducts();
     if (id) {
       saveLocal(products.map((product) => product.id === id ? { ...product, ...input, updatedAt: now } : product));
@@ -84,6 +95,7 @@ export async function saveProduct(input: ProductInput, id?: string): Promise<voi
 
 export async function removeProduct(id: string): Promise<void> {
   if (!supabase) {
+    ensureSupabaseConfigured();
     saveLocal(localProducts().filter((product) => product.id !== id));
     return;
   }
@@ -92,7 +104,10 @@ export async function removeProduct(id: string): Promise<void> {
 }
 
 export async function uploadMedia(file: File): Promise<string> {
-  if (!supabase) return URL.createObjectURL(file);
+  if (!supabase) {
+    ensureSupabaseConfigured();
+    return URL.createObjectURL(file);
+  }
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `products/${crypto.randomUUID()}-${safeName}`;
   const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type });
