@@ -1,7 +1,7 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { auth, db, isFirebaseConfigured } from "../services/firebase";
+import { auth, isFirebaseConfigured } from "../services/firebase";
+import { supabase } from "../services/supabase";
 
 interface AuthContextValue {
   user: User | { uid: string; email: string } | null;
@@ -13,32 +13,45 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function isAdmin(uid: string): Promise<boolean> {
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Add its URL and anon key to enable admin access.");
+  }
+  const { data, error } = await supabase
+    .from("admins")
+    .select("firebase_uid")
+    .eq("firebase_uid", uid)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (error) throw new Error(`Unable to verify the admin account in Supabase: ${error.message}`);
+  return Boolean(data);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!auth || !db) {
+    if (!auth) {
       const demo = sessionStorage.getItem("jaytronix-demo-admin");
       setUser(demo ? { uid: "demo-admin", email: "admin@jaytronix.co.tz" } : null);
       setLoading(false);
       return;
     }
     const firebaseAuth = auth;
-    const firestore = db;
     return onAuthStateChanged(firebaseAuth, async (nextUser) => {
       try {
         if (!nextUser) {
           setUser(null);
         } else {
-          const admin = await getDoc(doc(firestore, "admins", nextUser.uid));
-          const authorized = admin.exists() && admin.data().role === "admin";
+          const authorized = await isAdmin(nextUser.uid);
           setUser(authorized ? nextUser : null);
           if (!authorized) await signOut(firebaseAuth);
         }
       } catch (error) {
         console.error("Unable to verify the Firebase admin account.", error);
         setUser(null);
+        if (nextUser) await signOut(firebaseAuth);
       } finally {
         setLoading(false);
       }
@@ -47,14 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string) {
     if (auth) {
-      if (!db) throw new Error("Firebase Firestore is not configured.");
       setLoading(true);
       try {
         const credential = await signInWithEmailAndPassword(auth, email, password);
-        const admin = await getDoc(doc(db, "admins", credential.user.uid));
-        if (!admin.exists() || admin.data().role !== "admin") {
+        if (!(await isAdmin(credential.user.uid))) {
           await signOut(auth);
-          throw new Error("This account is not authorized as an admin. Check the admins document for this user's UID.");
+          throw new Error("This account is not an authorized admin. Add its Firebase UID to the Supabase admins table.");
         }
         setUser(credential.user);
       } finally {

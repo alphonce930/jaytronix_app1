@@ -37,7 +37,7 @@ export default function LoginPage() {
             {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
             <Button className="w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in securely"}</Button>
           </form>
-          {isDemo && <div className="mt-6 rounded-2xl border border-line bg-white p-4 text-sm text-muted"><strong className="text-navy">Demo mode:</strong> credentials are pre-filled. Connect Firebase environment variables for production authentication.</div>}
+          {isDemo && <div className="mt-6 rounded-2xl border border-line bg-white p-4 text-sm text-muted"><strong className="text-navy">Demo mode:</strong> credentials are pre-filled. Configure Firebase Authentication and Supabase to enable production sign-in and catalog management.</div>}
           <a href="/" className="mt-7 inline-block text-sm font-bold text-emerald">← Return to storefront</a>
         </div>
       </div>

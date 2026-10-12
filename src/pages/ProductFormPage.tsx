@@ -133,7 +133,9 @@ export default function ProductFormPage() {
     } catch (saveError) {
       console.error("Product save failed.", saveError)
       setError(
-        "We couldn't save this product. Check that Firebase Storage is enabled, the configured bucket exists, and your connection is working.",
+        saveError instanceof Error
+          ? saveError.message
+          : "We couldn't save this product. Check your Supabase configuration and connection.",
       )
     } finally {
       setBusy(false)
